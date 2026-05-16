@@ -106,7 +106,7 @@ USER_IMAGES_BUCKET = "panneau-user-images"
 
 @app.cls(
     image=image,
-    gpu=["H100", "A100-80GB"],
+    gpu="A100-40GB",
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
