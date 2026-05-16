@@ -68,7 +68,6 @@ image = (
         "fastapi[standard]==0.115.0",
         "requests==2.32.3",
         "pydantic==2.9.2",
-        "pillow==10.4.0",
     )
     .add_local_dir("comfy", "/app/comfy")
 )
@@ -123,7 +122,7 @@ USER_IMAGES_BUCKET = "panneau-user-images"
 class ComfyUI:
     @modal.enter(snap=True)
     def boot(self):
-        """Start ComfyUI and warm up models so weights land in the GPU snapshot."""
+        """Start ComfyUI subprocess and wait for it to be ready."""
         # Render extra_model_paths.yaml into the ComfyUI dir.
         src = Path("/app/comfy/extra_model_paths.yaml")
         dst = Path(f"{COMFY_DIR}/extra_model_paths.yaml")
@@ -157,7 +156,7 @@ class ComfyUI:
                 )
                 if r.ok:
                     print("[boot] ComfyUI ready.")
-                    break
+                    return
             except requests.RequestException:
                 pass
             if self._proc.poll() is not None:
@@ -165,32 +164,7 @@ class ComfyUI:
                     f"ComfyUI exited prematurely with code {self._proc.returncode}"
                 )
             time.sleep(2)
-        else:
-            raise RuntimeError("ComfyUI did not become ready within 5 minutes.")
-
-        # Warmup: run a sample workflow so all models load into VRAM.
-        # Modal then snapshots this state — future cold starts skip model load.
-        self._warmup()
-
-    def _warmup(self) -> None:
-        """Trigger a single inference to pull every model into VRAM."""
-        import json
-
-        from PIL import Image
-
-        print("[warmup] Generating placeholder input images...")
-        input_dir = Path(f"{COMFY_DIR}/input")
-        input_dir.mkdir(parents=True, exist_ok=True)
-        for name, color in (("person1.jpeg", (200, 200, 200)), ("garment1.jpeg", (100, 100, 100))):
-            Image.new("RGB", (832, 1248), color).save(input_dir / name, "JPEG")
-
-        print("[warmup] Submitting warmup workflow...")
-        workflow = json.loads(Path("/app/comfy/warmup_workflow.json").read_text())
-        prompt_id = self._queue(workflow)
-
-        print(f"[warmup] Waiting for warmup prompt {prompt_id} to complete...")
-        self._wait(prompt_id, timeout=600)
-        print("[warmup] Done. Models are in VRAM; snapshot will capture this state.")
+        raise RuntimeError("ComfyUI did not become ready within 5 minutes.")
 
     # ── helpers ────────────────────────────────────────────────────────────
 
