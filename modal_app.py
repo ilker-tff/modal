@@ -3,9 +3,9 @@ Modal app — ComfyUI Qwen virtual try-on.
 
 Architecture:
     POST /predict (proxy-auth-protected)
-      → handler downloads input images from R2 (panneau-user-images)
+      → handler downloads input images from R2 (user-images or catalog bucket)
       → ComfyUI runs the workflow
-      → handler uploads outputs back to R2
+      → handler uploads outputs to R2 (panneau-user-images)
       → returns the R2 keys
 
 Models live in a modal.Volume seeded from R2; see scripts/sync_r2_to_volume.py.
@@ -19,6 +19,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import modal
 from pydantic import BaseModel, Field
@@ -76,15 +77,21 @@ image = (
 # ─── Request / response models ───────────────────────────────────────────────
 
 
+class ImageRef(BaseModel):
+    bucket: Literal["user-images", "catalog"] = Field(
+        ..., description="Which R2 bucket the image lives in."
+    )
+    key: str = Field(..., description="R2 object key within that bucket.")
+
+
 class PredictRequest(BaseModel):
     tenant_id: str = Field(..., description="UUID of the tenant making the request")
     workflow: dict = Field(..., description="ComfyUI API-format workflow JSON")
-    images: dict[str, str] = Field(
+    images: dict[str, ImageRef] = Field(
         default_factory=dict,
         description=(
             "Map of local filename (as referenced inside the workflow) → "
-            "R2 key in panneau-user-images. Keys must start with "
-            "'<tenant_id>/inputs/'."
+            "{bucket, key} pointer to an image in R2."
         ),
     )
     timeout: int = Field(default=600, ge=10, le=1800)
@@ -102,6 +109,20 @@ TENANT_UUID_RE = re.compile(
 )
 
 USER_IMAGES_BUCKET = "panneau-user-images"
+CATALOG_BUCKET = "panneau-catalog"
+
+BUCKETS = {
+    "user-images": {
+        "name": USER_IMAGES_BUCKET,
+        "key_id_env": "AWS_ACCESS_KEY_ID",
+        "secret_env": "AWS_SECRET_ACCESS_KEY",
+    },
+    "catalog": {
+        "name": CATALOG_BUCKET,
+        "key_id_env": "CATALOG_AWS_ACCESS_KEY_ID",
+        "secret_env": "CATALOG_AWS_SECRET_ACCESS_KEY",
+    },
+}
 
 
 @app.cls(
@@ -110,6 +131,7 @@ USER_IMAGES_BUCKET = "panneau-user-images"
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
+        modal.Secret.from_name("panneau-r2-catalog"),
     ],
     min_containers=0,
     max_containers=5,
@@ -167,46 +189,48 @@ class ComfyUI:
 
     # ── helpers ────────────────────────────────────────────────────────────
 
-    def _s3(self):
+    def _s3_for(self, bucket_alias: str):
         import boto3
 
-        return boto3.client("s3", endpoint_url=os.environ["AWS_ENDPOINT_URL"])
+        cfg = BUCKETS[bucket_alias]
+        return boto3.client(
+            "s3",
+            endpoint_url=os.environ["AWS_ENDPOINT_URL"],
+            aws_access_key_id=os.environ[cfg["key_id_env"]],
+            aws_secret_access_key=os.environ[cfg["secret_env"]],
+        )
 
     def _validate(self, req: PredictRequest) -> None:
-        if not TENANT_UUID_RE.match(req.tenant_id):
-            from fastapi import HTTPException
+        from fastapi import HTTPException
 
+        # tenant_id still validated because outputs are written under it.
+        if not TENANT_UUID_RE.match(req.tenant_id):
             raise HTTPException(400, "invalid tenant_id format")
         try:
             uuid.UUID(req.tenant_id)
         except ValueError:
-            from fastapi import HTTPException
-
             raise HTTPException(400, "invalid tenant_id")
 
-        expected_prefix = f"{req.tenant_id}/inputs/"
-        for local_name, key in req.images.items():
+        for local_name, ref in req.images.items():
             if "/" in local_name or ".." in local_name or local_name.startswith("."):
-                from fastapi import HTTPException
-
                 raise HTTPException(400, f"invalid local filename: {local_name}")
-            if not key.startswith(expected_prefix):
-                from fastapi import HTTPException
-
-                raise HTTPException(403, f"key out of tenant scope: {key}")
-            basename = key[len(expected_prefix) :]
-            if "/" in basename or ".." in basename or basename.startswith("."):
-                from fastapi import HTTPException
-
-                raise HTTPException(400, f"invalid key: {key}")
+            if ref.bucket not in BUCKETS:
+                raise HTTPException(400, f"unknown bucket: {ref.bucket}")
+            if not ref.key or ".." in ref.key or ref.key.startswith("/"):
+                raise HTTPException(400, f"invalid key: {ref.key}")
 
     def _download_inputs(self, req: PredictRequest) -> None:
         input_dir = Path(f"{COMFY_DIR}/input")
         input_dir.mkdir(parents=True, exist_ok=True)
-        s3 = self._s3()
-        for local_name, key in req.images.items():
+        # Cache one s3 client per bucket to avoid recreating each loop.
+        clients: dict[str, object] = {}
+        for local_name, ref in req.images.items():
+            if ref.bucket not in clients:
+                clients[ref.bucket] = self._s3_for(ref.bucket)
             dst = input_dir / local_name
-            s3.download_file(USER_IMAGES_BUCKET, key, str(dst))
+            clients[ref.bucket].download_file(
+                BUCKETS[ref.bucket]["name"], ref.key, str(dst)
+            )
 
     def _queue(self, workflow: dict) -> str:
         import requests
@@ -250,7 +274,7 @@ class ComfyUI:
     def _upload_outputs(self, tenant_id: str, history: dict) -> list[str]:
         import requests
 
-        s3 = self._s3()
+        s3 = self._s3_for("user-images")
         uploaded: list[str] = []
         for node_output in history.get("outputs", {}).values():
             for img in node_output.get("images", []):
