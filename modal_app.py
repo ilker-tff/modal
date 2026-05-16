@@ -106,7 +106,7 @@ USER_IMAGES_BUCKET = "panneau-user-images"
 
 @app.cls(
     image=image,
-    gpu="A100-80GB",
+    gpu=["A100-80GB", "H100"],
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
@@ -116,7 +116,6 @@ USER_IMAGES_BUCKET = "panneau-user-images"
     scaledown_window=60,
     timeout=60 * 30,
     enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=1)
 class ComfyUI:
