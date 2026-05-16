@@ -61,6 +61,7 @@ image = (
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes/requirements.txt",
     )
     .pip_install("sageattention==1.0.6")
+    .pip_install("wheel", "packaging", "ninja", "setuptools")
     .run_commands("pip install --no-cache-dir flash-attn --no-build-isolation")
     .pip_install(
         "boto3==1.35.0",
