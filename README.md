@@ -97,7 +97,6 @@ modal_app.py                    # the Modal app
 comfy/
   extra_model_paths.yaml        # paths into /models (volume mount)
   install_nodes.sh              # reference; image installs via run_commands
-  workflows/qwen_tryon.json     # canonical workflow JSON
 scripts/
   sync_r2_to_volume.py          # R2 → modal.Volume seed/refresh
 pyproject.toml
