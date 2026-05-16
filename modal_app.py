@@ -115,10 +115,12 @@ USER_IMAGES_BUCKET = "panneau-user-images"
     max_containers=5,
     scaledown_window=60,
     timeout=60 * 30,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=1)
 class ComfyUI:
-    @modal.enter()
+    @modal.enter(snap=True)
     def boot(self):
         """Start the ComfyUI server. CPU-only init runs before the snapshot."""
         # Render extra_model_paths.yaml into the ComfyUI dir.
