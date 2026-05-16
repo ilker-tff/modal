@@ -1,0 +1,11 @@
+panneau:
+  base_path: /models/
+  checkpoints: checkpoints/
+  clip: text_encoders/
+  vae: vae/
+  loras: loras/
+  unet: unet/
+  diffusion_models: diffusion_models/
+  controlnet: controlnet/
+  embeddings: embeddings/
+  upscale_models: upscale_models/
