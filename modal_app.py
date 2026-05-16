@@ -115,11 +115,10 @@ USER_IMAGES_BUCKET = "panneau-user-images"
     max_containers=5,
     scaledown_window=60,
     timeout=60 * 30,
-    enable_memory_snapshot=True,
 )
 @modal.concurrent(max_inputs=1)
 class ComfyUI:
-    @modal.enter(snap=True)
+    @modal.enter()
     def boot(self):
         """Start the ComfyUI server. CPU-only init runs before the snapshot."""
         # Render extra_model_paths.yaml into the ComfyUI dir.
@@ -210,6 +209,7 @@ class ComfyUI:
 
     def _queue(self, workflow: dict) -> str:
         import requests
+        from fastapi import HTTPException
 
         client_id = str(uuid.uuid4())
         r = requests.post(
@@ -217,7 +217,19 @@ class ComfyUI:
             json={"prompt": workflow, "client_id": client_id},
             timeout=30,
         )
-        r.raise_for_status()
+        if not r.ok:
+            try:
+                body = r.json()
+            except ValueError:
+                body = r.text[:2000]
+            raise HTTPException(
+                status_code=400 if r.status_code in (400, 422) else 500,
+                detail={
+                    "error": "comfyui rejected workflow",
+                    "comfyui_status": r.status_code,
+                    "comfyui_response": body,
+                },
+            )
         return r.json()["prompt_id"]
 
     def _wait(self, prompt_id: str, timeout: int) -> dict:
