@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 
 import modal
+from pydantic import BaseModel, Field
 
 # ─── App config ──────────────────────────────────────────────────────────────
 
@@ -72,9 +73,6 @@ image = (
 
 
 # ─── Request / response models ───────────────────────────────────────────────
-
-with image.imports():
-    from pydantic import BaseModel, Field
 
 
 class PredictRequest(BaseModel):
