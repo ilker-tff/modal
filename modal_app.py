@@ -137,11 +137,10 @@ BUCKETS = {
     max_containers=5,
     scaledown_window=60,
     timeout=60 * 30,
-    enable_memory_snapshot=True,
 )
 @modal.concurrent(max_inputs=1)
 class ComfyUI:
-    @modal.enter(snap=True)
+    @modal.enter()
     def boot(self):
         """Start ComfyUI subprocess and wait for it to be ready."""
         # Render extra_model_paths.yaml into the ComfyUI dir.
