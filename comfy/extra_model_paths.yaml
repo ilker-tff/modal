@@ -9,3 +9,4 @@ panneau:
   controlnet: controlnet/
   embeddings: embeddings/
   upscale_models: upscale_models/
+  inpaint: inpaint/
