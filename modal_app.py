@@ -60,8 +60,10 @@ image = (
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/requirements.txt",
         f"git clone https://github.com/kijai/ComfyUI-KJNodes.git {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes"
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes/requirements.txt",
+        f"git clone https://github.com/Acly/comfyui-inpaint-nodes.git {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes"
+        f" && cd {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes && git checkout b9039c2",
     )
-    .pip_install("sageattention==1.0.6")
+    .pip_install("sageattention==1.0.6", "kornia==0.8.2")
     .pip_install("wheel", "packaging", "ninja", "setuptools")
     .run_commands("pip install --no-cache-dir flash-attn --no-build-isolation")
     .pip_install(
