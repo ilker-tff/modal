@@ -52,8 +52,13 @@ image = (
         f"cd {COMFY_DIR} && pip install --no-cache-dir -r requirements.txt",
     )
     .run_commands(
+        # Pin ComfyUI-GGUF to Dec 1 2025 commit — January 2026 loader.py rewrites
+        # changed key remapping in `sd_map_replace` / `fix_gemma3_llama_cpp_keys`
+        # which broke Try_On_Qwen_Edit_Lora (diffusers-format LoRA) loading. Pinned
+        # commit predates those changes while still including Qwen3 VL support.
         f"git clone https://github.com/city96/ComfyUI-GGUF.git {COMFY_DIR}/custom_nodes/ComfyUI-GGUF"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-GGUF/requirements.txt",
+        f" && cd {COMFY_DIR}/custom_nodes/ComfyUI-GGUF && git checkout 01f8845"
+        f" && pip install --no-cache-dir -r requirements.txt",
         f"git clone https://github.com/drphero/ComfyUI-FASHN-VTON.git {COMFY_DIR}/custom_nodes/ComfyUI-FASHN-VTON"
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-FASHN-VTON/requirements.txt",
         f"git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git {COMFY_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
@@ -137,7 +142,7 @@ BUCKETS = {
     ],
     min_containers=0,
     max_containers=5,
-    scaledown_window=60,
+    scaledown_window=300,
     timeout=60 * 30,
 )
 @modal.concurrent(max_inputs=1)
