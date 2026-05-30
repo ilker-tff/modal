@@ -67,6 +67,17 @@ image = (
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes/requirements.txt",
         f"git clone https://github.com/Acly/comfyui-inpaint-nodes.git {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes"
         f" && cd {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes && git checkout b9039c2",
+        # WAN 2.2 video custom nodes
+        f"git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt",
+        f"git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt",
+        f"git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation/requirements-no-cupy.txt",
+        f"git clone https://github.com/rgthree/rgthree-comfy.git {COMFY_DIR}/custom_nodes/rgthree-comfy"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/rgthree-comfy/requirements.txt",
+        # ComfyMath — int/float arithmetic for in-workflow padding/dimension calculations
+        f"git clone https://github.com/evanspearman/ComfyMath.git {COMFY_DIR}/custom_nodes/ComfyMath",
     )
     .pip_install("sageattention==1.0.6", "kornia==0.8.2")
     .pip_install("wheel", "packaging", "ninja", "setuptools")
@@ -282,25 +293,35 @@ class ComfyUI:
 
         s3 = self._s3_for("user-images")
         uploaded: list[str] = []
+        # ComfyUI groups outputs by type (images, gifs, videos). Handle all.
         for node_output in history.get("outputs", {}).values():
-            for img in node_output.get("images", []):
-                view = (
-                    f"http://127.0.0.1:{COMFY_PORT}/view"
-                    f"?filename={img['filename']}"
-                    f"&subfolder={img.get('subfolder', '')}"
-                    f"&type={img.get('type', 'output')}"
-                )
-                r = requests.get(view, timeout=60)
-                r.raise_for_status()
-                ext = Path(img["filename"]).suffix or ".png"
-                key = f"{tenant_id}/outputs/{uuid.uuid4()}{ext}"
-                s3.put_object(
-                    Bucket=USER_IMAGES_BUCKET,
-                    Key=key,
-                    Body=r.content,
-                    ContentType=f"image/{ext.lstrip('.').lower()}",
-                )
-                uploaded.append(key)
+            for output_type in ("images", "gifs", "videos", "animated"):
+                for item in node_output.get(output_type, []):
+                    view = (
+                        f"http://127.0.0.1:{COMFY_PORT}/view"
+                        f"?filename={item['filename']}"
+                        f"&subfolder={item.get('subfolder', '')}"
+                        f"&type={item.get('type', 'output')}"
+                    )
+                    r = requests.get(view, timeout=120)
+                    r.raise_for_status()
+                    ext = Path(item["filename"]).suffix or ".png"
+                    key = f"{tenant_id}/outputs/{uuid.uuid4()}{ext}"
+                    # Pick content type based on extension
+                    ext_lower = ext.lstrip(".").lower()
+                    if ext_lower in ("mp4", "mov", "webm"):
+                        content_type = f"video/{ext_lower}"
+                    elif ext_lower == "gif":
+                        content_type = "image/gif"
+                    else:
+                        content_type = f"image/{ext_lower}"
+                    s3.put_object(
+                        Bucket=USER_IMAGES_BUCKET,
+                        Key=key,
+                        Body=r.content,
+                        ContentType=content_type,
+                    )
+                    uploaded.append(key)
         return uploaded
 
     # ── endpoint ───────────────────────────────────────────────────────────
