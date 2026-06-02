@@ -88,6 +88,32 @@ image = (
         "requests==2.32.3",
         "pydantic==2.9.2",
     )
+    # Segformer B2 clothes (ATR human parsing) — garment isolation for try-on
+    # reference images. Appended LATE on purpose: keeps the expensive flash-attn
+    # build layer above cached.
+    #   • NOT installing the node's requirements.txt — it pins transformers==4.33.2,
+    #     which would downgrade the image's transformers and break the Qwen 2.5-VL
+    #     CLIP loader. The existing transformers runs Segformer inference fine.
+    #   • The pack's __init__.py imports BOTH segformer_b2_clothes AND
+    #     segformer_b3_fashion, and EACH module loads its model at IMPORT time
+    #     (module level). We only use b2 (clothes/ATR parsing). The b3 module's
+    #     module-level load of the (unused) b3 model was failing the WHOLE pack
+    #     import → neither node registered ("node not found"). Fix: strip every
+    #     b3 reference from __init__.py so only b2 is imported — no b3 model needed.
+    #   • b2 model baked in via the image's EXISTING huggingface_hub. Do NOT
+    #     pin/upgrade huggingface_hub here: hf_hub>=0.25 dropped the top-level
+    #     `is_offline_mode` symbol the image's transformers imports, which
+    #     crash-loops ComfyUI at boot. The bundled hf_hub already ships
+    #     snapshot_download.
+    .run_commands(
+        f"git clone https://github.com/StartHua/Comfyui_segformer_b2_clothes.git"
+        f" {COMFY_DIR}/custom_nodes/Comfyui_segformer_b2_clothes",
+        f"sed -i '/segformer_b3_fashion/d'"
+        f" {COMFY_DIR}/custom_nodes/Comfyui_segformer_b2_clothes/__init__.py",
+        "python -c \"from huggingface_hub import snapshot_download;"
+        " snapshot_download(repo_id='mattmdjaga/segformer_b2_clothes',"
+        f" local_dir='{COMFY_DIR}/models/segformer_b2_clothes')\"",
+    )
     .add_local_dir("comfy", "/app/comfy")
 )
 
