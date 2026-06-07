@@ -67,6 +67,17 @@ image = (
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes/requirements.txt",
         f"git clone https://github.com/Acly/comfyui-inpaint-nodes.git {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes"
         f" && cd {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes && git checkout b9039c2",
+        # WAN 2.2 video custom nodes
+        f"git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt",
+        f"git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt",
+        f"git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation/requirements-no-cupy.txt",
+        f"git clone https://github.com/rgthree/rgthree-comfy.git {COMFY_DIR}/custom_nodes/rgthree-comfy"
+        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/rgthree-comfy/requirements.txt",
+        # ComfyMath — int/float arithmetic for in-workflow padding/dimension calculations
+        f"git clone https://github.com/evanspearman/ComfyMath.git {COMFY_DIR}/custom_nodes/ComfyMath",
     )
     .pip_install("sageattention==1.0.6", "kornia==0.8.2")
     .pip_install("wheel", "packaging", "ninja", "setuptools")
@@ -76,6 +87,32 @@ image = (
         "fastapi[standard]==0.115.0",
         "requests==2.32.3",
         "pydantic==2.9.2",
+    )
+    # Segformer B2 clothes (ATR human parsing) — garment isolation for try-on
+    # reference images. Appended LATE on purpose: keeps the expensive flash-attn
+    # build layer above cached.
+    #   • NOT installing the node's requirements.txt — it pins transformers==4.33.2,
+    #     which would downgrade the image's transformers and break the Qwen 2.5-VL
+    #     CLIP loader. The existing transformers runs Segformer inference fine.
+    #   • The pack's __init__.py imports BOTH segformer_b2_clothes AND
+    #     segformer_b3_fashion, and EACH module loads its model at IMPORT time
+    #     (module level). We only use b2 (clothes/ATR parsing). The b3 module's
+    #     module-level load of the (unused) b3 model was failing the WHOLE pack
+    #     import → neither node registered ("node not found"). Fix: strip every
+    #     b3 reference from __init__.py so only b2 is imported — no b3 model needed.
+    #   • b2 model baked in via the image's EXISTING huggingface_hub. Do NOT
+    #     pin/upgrade huggingface_hub here: hf_hub>=0.25 dropped the top-level
+    #     `is_offline_mode` symbol the image's transformers imports, which
+    #     crash-loops ComfyUI at boot. The bundled hf_hub already ships
+    #     snapshot_download.
+    .run_commands(
+        f"git clone https://github.com/StartHua/Comfyui_segformer_b2_clothes.git"
+        f" {COMFY_DIR}/custom_nodes/Comfyui_segformer_b2_clothes",
+        f"sed -i '/segformer_b3_fashion/d'"
+        f" {COMFY_DIR}/custom_nodes/Comfyui_segformer_b2_clothes/__init__.py",
+        "python -c \"from huggingface_hub import snapshot_download;"
+        " snapshot_download(repo_id='mattmdjaga/segformer_b2_clothes',"
+        f" local_dir='{COMFY_DIR}/models/segformer_b2_clothes')\"",
     )
     .add_local_dir("comfy", "/app/comfy")
 )
@@ -282,25 +319,35 @@ class ComfyUI:
 
         s3 = self._s3_for("user-images")
         uploaded: list[str] = []
+        # ComfyUI groups outputs by type (images, gifs, videos). Handle all.
         for node_output in history.get("outputs", {}).values():
-            for img in node_output.get("images", []):
-                view = (
-                    f"http://127.0.0.1:{COMFY_PORT}/view"
-                    f"?filename={img['filename']}"
-                    f"&subfolder={img.get('subfolder', '')}"
-                    f"&type={img.get('type', 'output')}"
-                )
-                r = requests.get(view, timeout=60)
-                r.raise_for_status()
-                ext = Path(img["filename"]).suffix or ".png"
-                key = f"{tenant_id}/outputs/{uuid.uuid4()}{ext}"
-                s3.put_object(
-                    Bucket=USER_IMAGES_BUCKET,
-                    Key=key,
-                    Body=r.content,
-                    ContentType=f"image/{ext.lstrip('.').lower()}",
-                )
-                uploaded.append(key)
+            for output_type in ("images", "gifs", "videos", "animated"):
+                for item in node_output.get(output_type, []):
+                    view = (
+                        f"http://127.0.0.1:{COMFY_PORT}/view"
+                        f"?filename={item['filename']}"
+                        f"&subfolder={item.get('subfolder', '')}"
+                        f"&type={item.get('type', 'output')}"
+                    )
+                    r = requests.get(view, timeout=120)
+                    r.raise_for_status()
+                    ext = Path(item["filename"]).suffix or ".png"
+                    key = f"{tenant_id}/outputs/{uuid.uuid4()}{ext}"
+                    # Pick content type based on extension
+                    ext_lower = ext.lstrip(".").lower()
+                    if ext_lower in ("mp4", "mov", "webm"):
+                        content_type = f"video/{ext_lower}"
+                    elif ext_lower == "gif":
+                        content_type = "image/gif"
+                    else:
+                        content_type = f"image/{ext_lower}"
+                    s3.put_object(
+                        Bucket=USER_IMAGES_BUCKET,
+                        Key=key,
+                        Body=r.content,
+                        ContentType=content_type,
+                    )
+                    uploaded.append(key)
         return uploaded
 
     # ── endpoint ───────────────────────────────────────────────────────────
