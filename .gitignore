@@ -6,3 +6,6 @@ __pycache__/
 .DS_Store
 .claude/
 docs/
+# Local bench test images
+person*.png
+garment*.png
