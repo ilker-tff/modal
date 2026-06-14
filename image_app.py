@@ -167,7 +167,7 @@ BUCKETS = {
     ],
     min_containers=0,
     max_containers=5,
-    scaledown_window=10,
+    scaledown_window=300,
     timeout=60 * 30,
 )
 @modal.concurrent(max_inputs=1)

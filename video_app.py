@@ -154,9 +154,7 @@ BUCKETS = {
     ],
     min_containers=0,
     max_containers=2,
-    # Video is sparse + long-running; a short grace avoids reloads within a
-    # burst but we accept cold starts otherwise.
-    scaledown_window=120,
+    scaledown_window=300,
     timeout=60 * 60,
 )
 @modal.concurrent(max_inputs=1)
