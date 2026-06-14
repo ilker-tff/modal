@@ -122,6 +122,5 @@ comfy/
   install_nodes.sh              # reference
 scripts/
   sync_r2_to_volume.py          # R2 → modal.Volume seed/refresh
-  bench/                        # cold-start benchmarking
 pyproject.toml
 ```
