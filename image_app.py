@@ -52,30 +52,18 @@ image = (
         f"cd {COMFY_DIR} && pip install --no-cache-dir -r requirements.txt",
     )
     .run_commands(
-        # Pin ComfyUI-GGUF to Dec 1 2025 commit — January 2026 loader.py rewrites
-        # changed key remapping in `sd_map_replace` / `fix_gemma3_llama_cpp_keys`
-        # which broke Try_On_Qwen_Edit_Lora (diffusers-format LoRA) loading. Pinned
-        # commit predates those changes while still including Qwen3 VL support.
-        f"git clone https://github.com/city96/ComfyUI-GGUF.git {COMFY_DIR}/custom_nodes/ComfyUI-GGUF"
-        f" && cd {COMFY_DIR}/custom_nodes/ComfyUI-GGUF && git checkout 01f8845"
-        f" && pip install --no-cache-dir -r requirements.txt",
-        f"git clone https://github.com/drphero/ComfyUI-FASHN-VTON.git {COMFY_DIR}/custom_nodes/ComfyUI-FASHN-VTON"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-FASHN-VTON/requirements.txt",
-        f"git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git {COMFY_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/requirements.txt",
+        # Only nodes referenced by the active image try-on workflows are installed.
+        # Removed (no class_type from these appears in any active workflow):
+        #   ComfyUI-GGUF (workflows use stock UNETLoader, not GGUF loaders),
+        #   ComfyUI-FASHN-VTON, rgthree-comfy (API-only deploy; no rgthree nodes used),
+        #   ComfyUI-SeedVR2_VideoUpscaler, ComfyUI-WanVideoWrapper,
+        #   ComfyUI-VideoHelperSuite, ComfyUI-Frame-Interpolation (video — disabled).
+        # Removing the 4 video/upscale packs also drops the import-time CUDA init
+        # (SeedVR2 bfloat16 probe, Wan get_torch_device) that slowed every cold start.
         f"git clone https://github.com/kijai/ComfyUI-KJNodes.git {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes"
         f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-KJNodes/requirements.txt",
         f"git clone https://github.com/Acly/comfyui-inpaint-nodes.git {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes"
         f" && cd {COMFY_DIR}/custom_nodes/comfyui-inpaint-nodes && git checkout b9039c2",
-        # WAN 2.2 video custom nodes
-        f"git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-WanVideoWrapper/requirements.txt",
-        f"git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt",
-        f"git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/ComfyUI-Frame-Interpolation/requirements-no-cupy.txt",
-        f"git clone https://github.com/rgthree/rgthree-comfy.git {COMFY_DIR}/custom_nodes/rgthree-comfy"
-        f" && pip install --no-cache-dir -r {COMFY_DIR}/custom_nodes/rgthree-comfy/requirements.txt",
         # ComfyMath — int/float arithmetic for in-workflow padding/dimension calculations
         f"git clone https://github.com/evanspearman/ComfyMath.git {COMFY_DIR}/custom_nodes/ComfyMath",
     )
@@ -171,7 +159,7 @@ BUCKETS = {
 
 @app.cls(
     image=image,
-    gpu=["A100-40GB", "L40S", "A100-80GB"],
+    gpu="RTX-PRO-6000",
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
