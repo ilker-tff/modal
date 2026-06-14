@@ -142,9 +142,11 @@ BUCKETS = {
 
 @app.cls(
     image=image,
-    # A100-80GB is the proven WAN config. RTX-PRO-6000 (Blackwell sm_120) was
-    # unreliable for WAN on older torch builds; revisit on cu128 for cost later.
-    gpu="A100-80GB",
+    # RTX-PRO-6000 (Blackwell sm_120) — works here because this image is built on
+    # torch cu128, which has sm_120 kernels (Zehra's earlier "no kernel image"
+    # failure was on an older cu126 build). If a deploy ever fails with a missing
+    # kernel image / capacity, fall back to gpu="A100-80GB" (proven WAN config).
+    gpu="RTX-PRO-6000",
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
