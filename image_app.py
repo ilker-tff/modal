@@ -35,6 +35,12 @@ models_vol = modal.Volume.from_name("panneau-models", create_if_missing=True)
 COMFY_DIR = "/comfyui"
 COMFY_PORT = 8188
 
+# GPU type — single source of truth for the @app.cls decorator AND the
+# cost-attribution field returned to panneau. Change here when swapping GPUs;
+# panneau's rate table keys on this exact string (must match Modal's GPU
+# pricing label), so a swap needs no panneau code change — just a rate row.
+GPU = "RTX-PRO-6000"
+
 image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04",
@@ -132,6 +138,16 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     outputs: list[str]
     prompt_id: str
+    # Cost attribution — read by panneau into usage_events. gpu_seconds is the
+    # wall-clock this request held the (dedicated, max_inputs=1) GPU container,
+    # i.e. the attributable active time. cold_start_seconds is the container
+    # boot/load time and is non-zero ONLY when this request triggered the cold
+    # start (the user waited for the wake) — attributable to this generation.
+    # System/anticipatory warm-ups are separate calls that write no usage_event.
+    gpu_type: str = GPU
+    gpu_seconds: float = 0.0
+    cold_start: bool = False
+    cold_start_seconds: float = 0.0
 
 
 # ─── The class ───────────────────────────────────────────────────────────────
@@ -159,7 +175,7 @@ BUCKETS = {
 
 @app.cls(
     image=image,
-    gpu="RTX-PRO-6000",
+    gpu=GPU,
     volumes={"/models": models_vol},
     secrets=[
         modal.Secret.from_name("panneau-r2-user-images"),
@@ -175,6 +191,12 @@ class ComfyUI:
     @modal.enter()
     def boot(self):
         """Start ComfyUI subprocess and wait for it to be ready."""
+        boot_t0 = time.perf_counter()
+        # _cold flips to False after the first request this container serves, so
+        # the boot/load time is attributed to exactly one generation — the one
+        # that waited for the wake.
+        self._cold = True
+        self._boot_seconds = 0.0
         # Render extra_model_paths.yaml into the ComfyUI dir.
         src = Path("/app/comfy/extra_model_paths.yaml")
         dst = Path(f"{COMFY_DIR}/extra_model_paths.yaml")
@@ -207,7 +229,8 @@ class ComfyUI:
                     f"http://127.0.0.1:{COMFY_PORT}/system_stats", timeout=2
                 )
                 if r.ok:
-                    print("[boot] ComfyUI ready.")
+                    self._boot_seconds = time.perf_counter() - boot_t0
+                    print(f"[boot] ComfyUI ready in {self._boot_seconds:.1f}s.")
                     return
             except requests.RequestException:
                 pass
@@ -344,6 +367,14 @@ class ComfyUI:
     def predict(self, req: PredictRequest) -> PredictResponse:
         from fastapi import HTTPException
 
+        t0 = time.perf_counter()
+        # Attribute the container boot to the first request only (the user who
+        # triggered the cold start). Subsequent requests on this warm container
+        # report cold_start=False / 0s.
+        cold = getattr(self, "_cold", False)
+        cold_start_seconds = getattr(self, "_boot_seconds", 0.0) if cold else 0.0
+        self._cold = False
+
         self._validate(req)
         try:
             self._download_inputs(req)
@@ -364,4 +395,11 @@ class ComfyUI:
             )
 
         outputs = self._upload_outputs(req.tenant_id, history)
-        return PredictResponse(outputs=outputs, prompt_id=prompt_id)
+        return PredictResponse(
+            outputs=outputs,
+            prompt_id=prompt_id,
+            gpu_type=GPU,
+            gpu_seconds=round(time.perf_counter() - t0, 3),
+            cold_start=cold,
+            cold_start_seconds=round(cold_start_seconds, 3),
+        )
