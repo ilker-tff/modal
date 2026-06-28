@@ -152,8 +152,13 @@ def gen_upscale(image_bytes: bytes, resolution: int = 1440, seed: int = 42):
 # user-images (kaynak inputs/, cikti outputs/ ikisi de orada).
 R2_BUCKETS = {"user-images": "panneau-user-images"}
 
+# GPU type — single source of truth for the Worker decorator AND the cost-
+# attribution fields returned to panneau. Change here on a GPU swap; panneau's
+# rate table keys on this exact string (must match Modal's GPU pricing label).
+GPU = "A100-80GB"
+
 @app.cls(
-    gpu="A100-80GB",                  # SeedVR2 + Qwen FaceDetailer ayni container'da -> 80GB
+    gpu=GPU,                          # SeedVR2 + Qwen FaceDetailer ayni container'da -> 80GB
     volumes={MODELS_DIR: vol},
     secrets=[modal.Secret.from_name("panneau-r2-user-images")],   # AWS_* (R2 creds + endpoint)
     timeout=1800,
@@ -166,12 +171,17 @@ class Worker:
     def boot(self):
         # Container basina BIR kez ComfyUI'yi localhost'ta ayaga kaldir (warm).
         import subprocess, time, urllib.request
+        # _cold flips False after the first request; boot time is attributed to
+        # exactly the generation that waited for the wake.
+        self._cold = True
+        self._boot_seconds = 0.0
         subprocess.Popen(f"comfy launch -- --listen 127.0.0.1 --port {PORT}", shell=True)
         t0 = time.time()
         while time.time() - t0 < 300:
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{PORT}/object_info", timeout=10).read()
-                print(f"[+] comfy hazir ({int(time.time()-t0)}s)")
+                self._boot_seconds = time.time() - t0
+                print(f"[+] comfy hazir ({int(self._boot_seconds)}s)")
                 return
             except Exception:
                 time.sleep(3)
@@ -181,6 +191,10 @@ class Worker:
     def predict(self, item: dict):
         import os, json, time, uuid, urllib.request, boto3
         from fastapi import HTTPException
+        t0 = time.time()
+        cold = getattr(self, "_cold", False)
+        cold_start_seconds = getattr(self, "_boot_seconds", 0.0) if cold else 0.0
+        self._cold = False
         tenant = item.get("tenant_id") or "anon"
         workflow = item.get("workflow")
         images = item.get("images", {}) or {}
@@ -236,7 +250,14 @@ class Worker:
                         s3.upload_file(p, R2_BUCKETS["user-images"], okey,
                                        ExtraArgs={"ContentType": ctype})
                         outputs.append(okey)
-                return {"outputs": outputs, "prompt_id": pid}
+                return {
+                    "outputs": outputs,
+                    "prompt_id": pid,
+                    "gpu_type": GPU,
+                    "gpu_seconds": round(time.time() - t0, 3),
+                    "cold_start": cold,
+                    "cold_start_seconds": round(cold_start_seconds, 3),
+                }
             if pid in hi and hi[pid].get("status", {}).get("status_str") == "error":
                 raise HTTPException(status_code=500,
                                     detail="workflow error: " + json.dumps(hi[pid]["status"].get("messages", []))[:1200])
