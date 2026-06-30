@@ -141,6 +141,10 @@ image = (
         " snapshot_download(repo_id='microsoft/Florence-2-base',"
         f" local_dir='{COMFY_DIR}/models/LLM/Florence-2-base')\"",
     )
+    # KeepLargeMaskComponents — drops small disconnected mask islands (e.g. skin
+    # mislabelled as garment on swimwear) so the garment mask is clean before
+    # feathering. Single-file node, isolated dir; does not touch the cloned packs.
+    .add_local_dir("comfy_mask_cc", f"{COMFY_DIR}/custom_nodes/comfy_mask_cc")
     .add_local_dir("comfy", "/app/comfy")
 )
 
