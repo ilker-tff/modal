@@ -108,6 +108,21 @@ image = (
         " snapshot_download(repo_id='mattmdjaga/segformer_b2_clothes',"
         f" local_dir='{COMFY_DIR}/models/segformer_b2_clothes')\"",
     )
+    # SAM2 (segment-anything-2) — clean garment isolation, especially swimwear/
+    # bikini where Segformer mislabels skin as garment (tan blob, ragged edges).
+    # The node bundles its own sam2 code (pyproject dependencies=[]; imports the
+    # relative .sam2 package and comfy.utils loader) so NO extra pip deps are
+    # needed — just the clone. Checkpoint baked into models/sam2 to avoid a
+    # cold-start HuggingFace download. Uses the image's existing huggingface_hub
+    # (same as the Segformer block) — do NOT pin/upgrade it.
+    .run_commands(
+        f"git clone https://github.com/kijai/ComfyUI-segment-anything-2.git"
+        f" {COMFY_DIR}/custom_nodes/ComfyUI-segment-anything-2",
+        "python -c \"from huggingface_hub import hf_hub_download;"
+        " hf_hub_download(repo_id='Kijai/sam2-safetensors',"
+        " filename='sam2.1_hiera_base_plus.safetensors',"
+        f" local_dir='{COMFY_DIR}/models/sam2')\"",
+    )
     .add_local_dir("comfy", "/app/comfy")
 )
 
