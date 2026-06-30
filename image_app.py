@@ -123,6 +123,24 @@ image = (
         " filename='sam2.1_hiera_base_plus.safetensors',"
         f" local_dir='{COMFY_DIR}/models/sam2')\"",
     )
+    # Florence-2 (open-vocabulary grounding) — AUTOMATIC garment detection by text
+    # ("clothing", "swimsuit") so SAM2 needs NO manual point coordinates and
+    # generalizes to any garment, including swimwear that Segformer cannot parse.
+    # Pipeline: Florence2Run(caption_to_phrase_grounding, text) → bbox →
+    # Florence2toCoordinates (in the SAM2 node) → Sam2Segmentation → mask.
+    #   • Transformers-based, NO CUDA-op build (unlike GroundingDINO).
+    #   • The node's requirements pin nothing that touches the image's
+    #     transformers (Qwen 2.5-VL CLIP loader) — we install only the light
+    #     extras the Florence-2 remote code needs (timm, einops, matplotlib).
+    #   • Florence-2-base baked into models/LLM to avoid a cold-start download.
+    .run_commands(
+        f"git clone https://github.com/kijai/ComfyUI-Florence2.git"
+        f" {COMFY_DIR}/custom_nodes/ComfyUI-Florence2",
+        "pip install --no-cache-dir timm einops matplotlib",
+        "python -c \"from huggingface_hub import snapshot_download;"
+        " snapshot_download(repo_id='microsoft/Florence-2-base',"
+        f" local_dir='{COMFY_DIR}/models/LLM/Florence-2-base')\"",
+    )
     .add_local_dir("comfy", "/app/comfy")
 )
 
