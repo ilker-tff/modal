@@ -108,39 +108,11 @@ image = (
         " snapshot_download(repo_id='mattmdjaga/segformer_b2_clothes',"
         f" local_dir='{COMFY_DIR}/models/segformer_b2_clothes')\"",
     )
-    # SAM2 (segment-anything-2) — clean garment isolation, especially swimwear/
-    # bikini where Segformer mislabels skin as garment (tan blob, ragged edges).
-    # The node bundles its own sam2 code (pyproject dependencies=[]; imports the
-    # relative .sam2 package and comfy.utils loader) so NO extra pip deps are
-    # needed — just the clone. Checkpoint baked into models/sam2 to avoid a
-    # cold-start HuggingFace download. Uses the image's existing huggingface_hub
-    # (same as the Segformer block) — do NOT pin/upgrade it.
-    .run_commands(
-        f"git clone https://github.com/kijai/ComfyUI-segment-anything-2.git"
-        f" {COMFY_DIR}/custom_nodes/ComfyUI-segment-anything-2",
-        "python -c \"from huggingface_hub import hf_hub_download;"
-        " hf_hub_download(repo_id='Kijai/sam2-safetensors',"
-        " filename='sam2.1_hiera_base_plus.safetensors',"
-        f" local_dir='{COMFY_DIR}/models/sam2')\"",
-    )
-    # Florence-2 (open-vocabulary grounding) — AUTOMATIC garment detection by text
-    # ("clothing", "swimsuit") so SAM2 needs NO manual point coordinates and
-    # generalizes to any garment, including swimwear that Segformer cannot parse.
-    # Pipeline: Florence2Run(caption_to_phrase_grounding, text) → bbox →
-    # Florence2toCoordinates (in the SAM2 node) → Sam2Segmentation → mask.
-    #   • Transformers-based, NO CUDA-op build (unlike GroundingDINO).
-    #   • The node's requirements pin nothing that touches the image's
-    #     transformers (Qwen 2.5-VL CLIP loader) — we install only the light
-    #     extras the Florence-2 remote code needs (timm, einops, matplotlib).
-    #   • Florence-2-base baked into models/LLM to avoid a cold-start download.
-    .run_commands(
-        f"git clone https://github.com/kijai/ComfyUI-Florence2.git"
-        f" {COMFY_DIR}/custom_nodes/ComfyUI-Florence2",
-        "pip install --no-cache-dir timm einops matplotlib",
-        "python -c \"from huggingface_hub import snapshot_download;"
-        " snapshot_download(repo_id='microsoft/Florence-2-base',"
-        f" local_dir='{COMFY_DIR}/models/LLM/Florence-2-base')\"",
-    )
+    # NOTE: SAM2 (segment-anything-2) + Florence-2 were removed — the production
+    # try-on ("winner") uses Segformer + KeepLargeMaskComponents only, not SAM2/
+    # Florence. Dropping them keeps the image lean and speeds cold start (no
+    # Florence-2-base snapshot / sam2 checkpoint download). Re-add if a workflow
+    # needs the Florence→SAM2 (pose-agnostic) garment path.
     # KeepLargeMaskComponents — drops small disconnected mask islands (e.g. skin
     # mislabelled as garment on swimwear) so the garment mask is clean before
     # feathering. Single-file node, isolated dir; does not touch the cloned packs.
