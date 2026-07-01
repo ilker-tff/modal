@@ -108,6 +108,15 @@ image = (
         " snapshot_download(repo_id='mattmdjaga/segformer_b2_clothes',"
         f" local_dir='{COMFY_DIR}/models/segformer_b2_clothes')\"",
     )
+    # NOTE: SAM2 (segment-anything-2) + Florence-2 were removed — the production
+    # try-on ("winner") uses Segformer + KeepLargeMaskComponents only, not SAM2/
+    # Florence. Dropping them keeps the image lean and speeds cold start (no
+    # Florence-2-base snapshot / sam2 checkpoint download). Re-add if a workflow
+    # needs the Florence→SAM2 (pose-agnostic) garment path.
+    # KeepLargeMaskComponents — drops small disconnected mask islands (e.g. skin
+    # mislabelled as garment on swimwear) so the garment mask is clean before
+    # feathering. Single-file node, isolated dir; does not touch the cloned packs.
+    .add_local_dir("comfy_mask_cc", f"{COMFY_DIR}/custom_nodes/comfy_mask_cc")
     .add_local_dir("comfy", "/app/comfy")
 )
 
